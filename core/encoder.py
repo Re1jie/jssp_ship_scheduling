@@ -36,6 +36,29 @@ class ROVEncoder:
         discrete_permutation = self.base_job_array[sort_indices]
         
         return discrete_permutation
+    
+    def encode(self, target_schedule):
+        """
+        Input: Permutasi jadwal JSSP diskrit (list/array 1D dari job_id).
+        Output: Vektor kontinu CAOA (ukuran = self.dim) yang akan di-decode
+                menjadi jadwal target secara eksak oleh fungsi np.argsort.
+        """
+        seed_vector = np.zeros(self.dim)
+        used_indices = set()
+        
+        # Buat nilai kontinu yang meningkat secara linear (dari -1.0 hingga 1.0)
+        # Angka yang semakin membesar ini akan memaksa np.argsort menghasilkan urutan yang kita inginkan
+        continuous_values = np.linspace(-1.0, 1.0, self.dim)
+        
+        for i, target_job in enumerate(target_schedule):
+            # Cari di base_job_array di mana job_id ini berada, yang belum dipetakan
+            for idx in range(self.dim):
+                if self.base_job_array[idx] == target_job and idx not in used_indices:
+                    seed_vector[idx] = continuous_values[i]
+                    used_indices.add(idx)
+                    break
+                    
+        return seed_vector
 
 # --- Testing ---
 if __name__ == "__main__":
