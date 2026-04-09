@@ -2,7 +2,7 @@ import time
 import numpy as np
 
 def CAOA(N, max_iter, lb, ub, dim, fobj, 
-         alpha=0.3, beta=0.1, gamma=0.1, delta=1, initial_energy=10.0,
+         alpha=0.146335, beta=0.098863, gamma=0.014926, delta=8, initial_energy=100.0,
          verbose_interval=100, seed_position=None):
     
     if np.isscalar(lb): lb = np.full(dim, lb)
@@ -100,7 +100,7 @@ def CAOA(N, max_iter, lb, ub, dim, fobj,
             
         cg_curve[t] = gBestScore
         
-        if (t + 1) % verbose_interval == 0 or t == 0:
+        if verbose_interval > 0 and ((t + 1) % verbose_interval == 0 or t == 0):
             elapsed = time.time() - start_time
             print(f"{t+1:<6} | {elapsed:<12.2f} | {n_depleted_count:<9} | {gBestScore:.6e}")
 
