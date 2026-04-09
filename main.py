@@ -40,8 +40,8 @@ def main():
         return fitness_score
 
     # Konfigurasi Parameter
-    N = 50
-    max_iter = 300
+    N = 150
+    max_iter = 1000
     lb = -1.0
     ub = 1.0
     
@@ -56,6 +56,7 @@ def main():
         ub=ub, 
         dim=dim,
         fobj=fobj_wrapper,
+        verbose_interval=10,
         # seed_position=seed_vector
     )
     
