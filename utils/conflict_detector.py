@@ -74,7 +74,7 @@ def detect_berth_conflicts(df):
 
 if __name__ == "__main__":
     try:
-        df = pd.read_csv("data/processed/voyage_dummy.csv")
+        df = pd.read_csv("data/processed/voyage_sim.csv")
         
         # Validasi eksistensi kolom sebelum eksekusi
         required_cols = ["port_name", "ship_name", "arrival_time", "proc_time", "due_date"]
