@@ -3,12 +3,12 @@ from collections import defaultdict
 from utils.tidal_builder import build_sparse_tidal_lookup
 
 PORT_CAPACITY = {
-    "TANJUNGPRIOK": 1,
-    "MAKASSAR": 1,
-    "BAUBAU": 1,
-    "AMBON": 1,
-    "SORONG": 1,
-    "KUPANG": 1
+    "TANJUNGPRIOK": 2,
+    "MAKASSAR": 2,
+    "BAUBAU": 2,
+    "AMBON": 2,
+    "SORONG": 2,
+    "KUPANG": 2
 }
 
 def verify_fifo(voyage_csv, tidal_lookup):
