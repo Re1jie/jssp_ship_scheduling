@@ -2,8 +2,8 @@ import time
 import numpy as np
 
 def CAOA(N, max_iter, lb, ub, dim, fobj, 
-         alpha=0.146335, beta=0.098863, gamma=0.014926, delta=8, initial_energy=100.0,
-         verbose_interval=100, seed_position=None):
+         alpha=0.3, beta=0.1, gamma=0.1, delta=1e-3, initial_energy=10.0,
+         verbose_interval=50):
     
     if np.isscalar(lb): lb = np.full(dim, lb)
     else: lb = np.array(lb)
@@ -11,10 +11,6 @@ def CAOA(N, max_iter, lb, ub, dim, fobj,
     else: ub = np.array(ub)
     
     pos = lb + (ub - lb) * np.random.rand(N, dim)
-
-    if seed_position is not None:
-        pos[0, :] = seed_position
-        print("--> SEED POSITION INJECTED")
 
     energies = initial_energy * np.ones(N)
     fitness = np.zeros(N)
