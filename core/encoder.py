@@ -3,74 +3,41 @@ import numpy as np
 
 class ROVEncoder:
     def __init__(self, voyage_csv_path):
-        # Inisialisasi base job array
-        self.base_job_array = self._build_base_array(voyage_csv_path)
-        
-        # Dimensi dihitung dari banyaknya operasi
-        self.dim = len(self.base_job_array)
-        
-    def _build_base_array(self, csv_path):
-        df = pd.read_csv(csv_path)
-        
-        # Hitung jumlah operasi (op_seq) per kapal (job_id)
-        # Mengembalikan series dengan index = job_id, value = jumlah operasi
+        # Sortir secara absolut untuk konsistensi operasional
+        df = pd.read_csv(voyage_csv_path).sort_values(by=['job_id', 'op_seq'])
         op_counts = df.groupby('job_id').size()
         
-        # Bangun Base Array
-        # Contoh: Jika job 1 punya 3 operasi, dan job 2 punya 2 operasi
-        # Hasilnya: [1, 1, 1, 2, 2]
         base_list = []
+        op_map = []
         for job_id, count in op_counts.items():
             base_list.extend([job_id] * count)
+            # Simpan indeks (job_id, op_idx) berurutan untuk mapping variabel Slack
+            op_map.extend([(job_id, seq) for seq in range(count)])
             
-        return np.array(base_list, dtype=np.int32)
-
+        self.base_job_array = np.array(base_list, dtype=np.int32)
+        self.op_map = op_map
+        
+        # N_w (Jumlah Operasi Aktual)
+        self.dim_single = len(self.base_job_array)
+        # Dimensi Aktual CAOA (ROV + Slack)
+        self.dim = self.dim_single * 2 
+        
     def decode(self, continuous_vector):
         """
-        Input: Vektor kontinu dari CAOA (ukuran = self.dim)
-        Output: Permutasi jadwal JSSP diskrit yang 100% legal.
+        Input: Vektor CAOA dimensi 2*N_w (Range: 0.0 s/d 1.0)
+        Output: 
+          1. Jadwal legal (1D array dari job_id)
+          2. Slack dictionary { (job_id, op_idx): nilai_slack_kontinu }
         """
-        sort_indices = np.argsort(continuous_vector)
+        # Split kromosom metaheuristik
+        x_rov = continuous_vector[:self.dim_single]
+        x_slack = continuous_vector[self.dim_single:]
         
-        # Re-order base array
-        discrete_permutation = self.base_job_array[sort_indices]
+        # Decode Rank-Order Value (Fase 1)
+        sort_indices = np.argsort(x_rov)
+        legal_schedule = self.base_job_array[sort_indices]
         
-        return discrete_permutation
-    
-    def encode(self, target_schedule):
-        """
-        Input: Permutasi jadwal JSSP diskrit (list/array 1D dari job_id).
-        Output: Vektor kontinu CAOA (ukuran = self.dim) yang akan di-decode
-                menjadi jadwal target secara eksak oleh fungsi np.argsort.
-        """
-        seed_vector = np.zeros(self.dim)
-        used_indices = set()
+        # Decode Slack Mapping (Fase 2)
+        slack_map = {self.op_map[i]: x_slack[i] for i in range(self.dim_single)}
         
-        # Buat nilai kontinu yang meningkat secara linear (dari -1.0 hingga 1.0)
-        # Angka yang semakin membesar ini akan memaksa np.argsort menghasilkan urutan yang kita inginkan
-        continuous_values = np.linspace(-1.0, 1.0, self.dim)
-        
-        for i, target_job in enumerate(target_schedule):
-            # Cari di base_job_array di mana job_id ini berada, yang belum dipetakan
-            for idx in range(self.dim):
-                if self.base_job_array[idx] == target_job and idx not in used_indices:
-                    seed_vector[idx] = continuous_values[i]
-                    used_indices.add(idx)
-                    break
-                    
-        return seed_vector
-
-# --- Testing ---
-if __name__ == "__main__":
-    # Inisialisasi Encoder
-    encoder = ROVEncoder('data/processed/voyage_p3.csv')
-    
-    print(f"Dimensi Problem (Total Operasi): {encoder.dim}")
-    
-    # Simulasi: CAOA menghasilkan satu vektor posisi acak
-    dummy_caoa_vector = np.random.uniform(-1.0, 1.0, encoder.dim)
-    
-    # Translasi vektor ke urutan jadwal
-    legal_schedule = encoder.decode(dummy_caoa_vector)
-    
-    print(f"Sample Permutasi Jadwal (100 pertama):\n{legal_schedule[:100]}")
+        return legal_schedule, slack_map
