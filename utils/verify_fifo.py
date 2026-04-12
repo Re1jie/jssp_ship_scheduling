@@ -11,8 +11,9 @@ PORT_CAPACITY = {
     "KUPANG": 2
 }
 
-def verify_fifo(voyage_csv, tidal_lookup):
+def verify_fifo_with_wait_isolation(voyage_csv, tidal_lookup):
     df = pd.read_csv(voyage_csv)
+    # Urutkan berdasarkan kedatangan untuk simulasi FIFO sejati
     df = df.sort_values(["arrival_time"])
 
     ship_time = defaultdict(float)
@@ -22,13 +23,11 @@ def verify_fifo(voyage_csv, tidal_lookup):
     }
 
     results = []
-    total_tardiness = 0
-    tidal_delays = 0
-    port_conflicts = 0
-
-    total_port_wait = 0
-    total_ship_wait = 0
-    port_wait_events = 0
+    
+    # Global Metrics terisolasi
+    global_tardiness = 0
+    global_congestion_wait = 0
+    global_tidal_wait = 0
 
     for _, row in df.iterrows():
         job = row.job_id
@@ -40,36 +39,45 @@ def verify_fifo(voyage_csv, tidal_lookup):
         buf = row.buffer_time
         due = row.due_date
 
+        # 1. Kapan kapal SECARA FISIK siap di area pelabuhan?
+        # Harus memperhitungkan jika kapal telat dari rute sebelumnya
+        ready_to_dock = max(arrival, ship_time[job]) 
+
+        # 2. Kapan dermaga pelabuhan kosong?
         berths = port_time[port]
         berth_idx = min(range(len(berths)), key=lambda i: berths[i])
         berth_ready = berths[berth_idx]
 
-        # waiting BEFORE scheduling
-        port_wait = max(0, berth_ready - arrival)
-        ship_wait = max(0, ship_time[job] - arrival)
-
-        start = max(arrival, ship_time[job], berth_ready)
-        original_start = start
+        # --- ISOLASI 1: CONGESTION WAIT ---
+        # Kapal sudah siap, tapi harus menunggu dermaga kosong
+        congestion_wait = max(0, berth_ready - ready_to_dock)
+        
+        # Waktu paling awal kapal bisa masuk jika mengabaikan alam
+        theoretical_start = max(ready_to_dock, berth_ready)
+        actual_start = theoretical_start
 
         tidal_array = tidal_lookup.get(port, {}).get(ship, [])
         max_t = len(tidal_array)
 
+        # Evaluasi Pasang Surut
         if max_t > 0:
             while True:
-                if start + proc + buf >= max_t:
-                    raise RuntimeError("Out of tidal range")
+                if actual_start + proc + buf >= max_t:
+                    raise RuntimeError(f"Out of tidal range for {ship} at {port}")
 
                 if buf > 0:
+                    # Cek keamanan masuk (buffer sebelum proses)
                     entry_safe = all(
                         tidal_array[int(t)] 
-                        for t in range(int(start - buf), int(start))
+                        for t in range(int(actual_start - buf), int(actual_start))
                         if t >= 0
                     )
 
                     if entry_safe:
-                        finish = start + proc
+                        finish = actual_start + proc
                         depart = finish
 
+                        # Cek keamanan keluar (buffer setelah proses)
                         while True:
                             exit_safe = all(
                                 tidal_array[int(t)]
@@ -78,76 +86,73 @@ def verify_fifo(voyage_csv, tidal_lookup):
                             if exit_safe:
                                 break
                             depart += 1
-                            tidal_delays += 1
 
                         finish = depart
                         break
                     else:
-                        start += 1
-                        tidal_delays += 1
+                        actual_start += 1
                 else:
+                    # Tanpa buffer, cek keamanan selama proses docking
                     docking_safe = all(
                         tidal_array[int(t)]
-                        for t in range(int(start), int(start + proc))
+                        for t in range(int(actual_start), int(actual_start + proc))
                     )
                     if docking_safe:
-                        finish = start + proc
+                        finish = actual_start + proc
                         break
                     else:
-                        start += 1
-                        tidal_delays += 1
+                        actual_start += 1
         else:
-            finish = start + proc
+            finish = actual_start + proc
 
-        # check port conflict
-        if start < berth_ready:
-            port_conflicts += 1
+        # --- ISOLASI 2: TIDAL WAIT ---
+        # Kapal sudah siap, dermaga sudah kosong, tapi harus menunggu air pasang
+        tidal_wait = actual_start - theoretical_start
 
-        total_port_wait += port_wait
-        total_ship_wait += ship_wait
-
-        if port_wait > 0:
-            port_wait_events += 1
-
+        # Update Tracker
         ship_time[job] = finish
         port_time[port][berth_idx] = finish
 
         tardiness = max(0, finish - due)
-        total_tardiness += tardiness
+        
+        # Akumulasi Global
+        global_tardiness += tardiness
+        global_congestion_wait += congestion_wait
+        global_tidal_wait += tidal_wait
 
         results.append({
             "job": job,
+            "ship": ship,
             "port": port,
-            "arrival": arrival,
-            "start": start,
+            "arrival_time": arrival,
+            "theoretical_start": theoretical_start,
+            "actual_start": actual_start,
             "finish": finish,
-            "due": due,
-            "tardiness": tardiness,
-            "port_wait": port_wait,
-            "ship_wait": ship_wait
+            "due_date": due,
+            "congestion_wait": congestion_wait,
+            "tidal_wait": tidal_wait,
+            "tardiness": tardiness
         })
 
-    print("===== FIFO VERIFICATION =====")
-    print("Total tardiness:", total_tardiness)
-    print("Tidal delays:", tidal_delays)
-    
-    print("\n--- WAITING METRICS ---")
-    print("Total port waiting time:", total_port_wait)
-    print("Total ship waiting time:", total_ship_wait)
-    print("Port waiting events:", port_wait_events)
+    print("===== METRIK ISOLASI JSSP-TW (FIFO) =====")
+    print(f"Total Tardiness Akhir : {global_tardiness} Jam")
+    print(f"Total Waktu Hilang akibat Antrean Pelabuhan (Congestion) : {global_congestion_wait} Jam")
+    print(f"Total Waktu Hilang akibat Pasang Surut Alam (Tidal Wait) : {global_tidal_wait} Jam")
+    print("=========================================")
     
     return pd.DataFrame(results)
 
 if __name__ == "__main__":
-
     tidal_lookup = build_sparse_tidal_lookup(
-        rules_csv_path="data/raw/tidal_rules.csv",
+        rules_csv_path="data/raw/tidal_rules_0000.csv",
         tidal_csv_path="data/raw/tidal_data.csv"
     )
 
-    df = verify_fifo(
+    df_results = verify_fifo_with_wait_isolation(
         "data/processed/voyage_sim.csv",
         tidal_lookup
     )
 
-    print(df[df.tardiness > 0])
+    # Tampilkan kapal yang menjadi korban pasang surut secara spesifik
+    print("\n[Detail Operasi Korban Pasang Surut]")
+    print(df_results[df_results.tidal_wait > 0][['ship', 'port', 'congestion_wait', 'tidal_wait', 'tardiness']])
